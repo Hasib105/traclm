@@ -1,5 +1,6 @@
 """Database tables for LLM Tracer."""
 
+import hashlib
 import secrets
 from datetime import datetime
 from enum import Enum
@@ -7,6 +8,7 @@ from enum import Enum
 from piccolo.columns import (
     JSON,
     UUID,
+    Boolean,
     ForeignKey,
     Integer,
     Serial,
@@ -25,12 +27,41 @@ class TraceStatus(str, Enum):
     ERROR = "error"
 
 
+class User(Table, tablename="app_user"):
+    """User account for dashboard access."""
+
+    username = Varchar(length=100, unique=True, index=True)
+    email = Varchar(length=255, unique=True, index=True)
+    password_hash = Varchar(length=255)
+    is_active = Boolean(default=True)
+    is_admin = Boolean(default=False)
+    created_at = Timestamp(default=datetime.now)
+    last_login = Timestamp(null=True)
+
+    @classmethod
+    def hash_password(cls, password: str) -> str:
+        """Hash a password using SHA-256 with salt."""
+        salt = secrets.token_hex(16)
+        hash_obj = hashlib.sha256((salt + password).encode())
+        return f"{salt}:{hash_obj.hexdigest()}"
+
+    @classmethod
+    def verify_password(cls, password: str, password_hash: str) -> bool:
+        """Verify a password against its hash."""
+        try:
+            salt, stored_hash = password_hash.split(":")
+            hash_obj = hashlib.sha256((salt + password).encode())
+            return hash_obj.hexdigest() == stored_hash
+        except ValueError:
+            return False
+
+
 class Project(Table):
     """A project that groups traces together."""
 
-    id = Serial()
     name = Varchar(length=255, unique=True)
     description = Text(null=True)
+    owner = ForeignKey(references=User, null=True)
     created_at = Timestamp(default=datetime.now)
     updated_at = Timestamp(default=datetime.now, auto_update=datetime.now)
 
@@ -38,10 +69,10 @@ class Project(Table):
 class APIKey(Table):
     """API keys for authentication."""
 
-    id = Serial()
-    key = Varchar(length=64, unique=True, index=True)
     name = Varchar(length=255)
-    project = ForeignKey(references=Project)
+    key_hash = Varchar(length=128, unique=True, index=True)
+    key_prefix = Varchar(length=16)  # Store first 12 chars for display
+    project = ForeignKey(references=Project, null=True)
     is_active = Integer(default=1)  # 1 = active, 0 = inactive
     created_at = Timestamp(default=datetime.now)
     last_used_at = Timestamp(null=True)
@@ -49,13 +80,22 @@ class APIKey(Table):
     @classmethod
     def generate_key(cls) -> str:
         """Generate a new API key."""
-        return f"lt-{secrets.token_urlsafe(32)}"
+        return f"llm-{secrets.token_urlsafe(32)}"
+
+    @classmethod
+    def hash_key(cls, key: str) -> str:
+        """Hash an API key for secure storage."""
+        return hashlib.sha256(key.encode()).hexdigest()
+
+    @classmethod
+    def verify_key(cls, key: str, key_hash: str) -> bool:
+        """Verify an API key against its hash."""
+        return cls.hash_key(key) == key_hash
 
 
 class LLMTrace(Table):
     """Individual LLM trace record."""
 
-    id = Serial()
     trace_id = UUID(index=True)
     parent_trace_id = UUID(null=True, index=True)
     project = ForeignKey(references=Project, null=True)

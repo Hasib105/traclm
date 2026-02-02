@@ -93,3 +93,6 @@ Thumbs.db
 
 # Project specific
 llm_tracer.db
+
+# Node.js
+node_modules/

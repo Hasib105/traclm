@@ -66,6 +66,23 @@ def _create_sqlite_engine_from_url(url: str):
     return SQLiteEngine(path=path)
 
 
+def _create_postgres_engine_from_url(url: str):
+    """Create PostgreSQL engine from DATABASE_URL."""
+    from piccolo.engine.postgres import PostgresEngine
+
+    parsed = urlparse(url)
+
+    config = {
+        "host": parsed.hostname or "localhost",
+        "port": parsed.port or 5432,
+        "user": parsed.username,
+        "password": parsed.password,
+        "database": parsed.path.lstrip("/") or "llm_tracer",
+    }
+
+    return PostgresEngine(config=config)
+
+
 def _create_postgres_engine_from_env():
     """Create PostgreSQL engine from individual environment variables."""
     from piccolo.engine.postgres import PostgresEngine

@@ -4,9 +4,9 @@ from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Load environment variables
+# Load environment variables for other libraries (like Piccolo)
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -35,9 +35,11 @@ class Settings(BaseSettings):
     # Templates
     TEMPLATES_DIR: Path = BASE_DIR / "templates"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 @lru_cache
