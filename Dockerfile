@@ -9,10 +9,10 @@ FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
-COPY apps/web/package.json apps/web/package-lock.json* ./
+COPY apps/web/package.json ./
 
 # Install dependencies
-RUN npm ci --ignore-scripts
+RUN npm install
 
 # Copy frontend source
 COPY apps/web/ ./
@@ -29,7 +29,8 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PICCOLO_CONF=llm_tracer.db.piccolo_conf
 
 WORKDIR /app
 
