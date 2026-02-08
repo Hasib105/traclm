@@ -1,0 +1,35 @@
+# Docker Development Setup - uses SQLite for simplicity
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-tracer-dev
+    restart: unless-stopped
+    environment:
+      # Use SQLite for development
+      DATABASE_URL: sqlite:///data/llmtracer.db
+      # Server
+      HOST: 0.0.0.0
+      PORT: 8000
+      DEBUG: true
+      # Security
+      SECRET_KEY: dev-secret-key-not-for-production
+      # CORS
+      CORS_ORIGINS: http://localhost:3000,http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - llmtracer_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  llmtracer_data:
+    driver: local

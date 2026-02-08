@@ -5,12 +5,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from llm_tracer_sdk.instrumentation import (
-    _create_async_traced_method,
-    _create_traced_method,
-    _is_instrumented,
+    _wrap_async_method,
+    _wrap_method,
     instrument_langchain,
     uninstrument_langchain,
 )
+import llm_tracer_sdk.instrumentation as instrumentation_mod
+
+
+def _make_mock_runnable_module():
+    """Create a mock langchain_core.runnables module with Runnable."""
+    mock_runnable = MagicMock()
+    mock_runnable.invoke = MagicMock()
+    mock_runnable.ainvoke = AsyncMock()
+    mock_runnable.stream = MagicMock()
+    mock_runnable.astream = AsyncMock()
+    mock_runnable.batch = MagicMock()
+    mock_runnable.abatch = AsyncMock()
+
+    mock_module = MagicMock()
+    mock_module.Runnable = mock_runnable
+    return mock_module, mock_runnable
 
 
 class TestInstrumentation:
@@ -18,59 +33,65 @@ class TestInstrumentation:
 
     def teardown_method(self):
         """Clean up instrumentation after each test."""
-        uninstrument_langchain()
+        instrumentation_mod._instrumented = False
+        instrumentation_mod._original_methods.clear()
 
     def test_instrument_langchain_success(self):
         """Test successful instrumentation."""
-        mock_client = MagicMock()
+        mock_runnables = MagicMock()
+        mock_runnable = MagicMock()
+        mock_runnable.invoke = MagicMock()
+        mock_runnable.ainvoke = AsyncMock()
+        mock_runnable.stream = MagicMock()
+        mock_runnable.astream = AsyncMock()
+        mock_runnable.batch = MagicMock()
+        mock_runnable.abatch = AsyncMock()
+        mock_runnables.Runnable = mock_runnable
 
-        with patch("llm_tracer_sdk.instrumentation.Runnable") as mock_runnable:
-            mock_runnable.invoke = MagicMock()
-            mock_runnable.ainvoke = AsyncMock()
-            mock_runnable.stream = MagicMock()
-            mock_runnable.astream = AsyncMock()
-            mock_runnable.batch = MagicMock()
-            mock_runnable.abatch = AsyncMock()
+        with patch.dict("sys.modules", {
+            "langchain_core": MagicMock(),
+            "langchain_core.runnables": mock_runnables,
+        }):
+            instrumentation_mod._instrumented = False
+            instrumentation_mod._original_methods.clear()
 
-            instrument_langchain(mock_client)
+            instrument_langchain()
 
-            assert _is_instrumented()
+            assert instrumentation_mod._instrumented
 
     def test_instrument_langchain_already_instrumented(self):
         """Test instrumentation when already instrumented."""
-        mock_client = MagicMock()
+        # Set as already instrumented
+        instrumentation_mod._instrumented = True
 
-        with patch("llm_tracer_sdk.instrumentation.Runnable") as mock_runnable:
-            mock_runnable.invoke = MagicMock()
-            mock_runnable.ainvoke = AsyncMock()
-            mock_runnable.stream = MagicMock()
-            mock_runnable.astream = AsyncMock()
-            mock_runnable.batch = MagicMock()
-            mock_runnable.abatch = AsyncMock()
+        # Should just return without error
+        instrument_langchain()
 
-            instrument_langchain(mock_client)
-
-            with patch("llm_tracer_sdk.instrumentation.logger") as mock_logger:
-                instrument_langchain(mock_client)
-                mock_logger.warning.assert_called()
+        assert instrumentation_mod._instrumented
 
     def test_uninstrument_langchain(self):
         """Test uninstrumentation."""
-        mock_client = MagicMock()
+        mock_runnables = MagicMock()
+        original_invoke = MagicMock()
+        mock_runnables.Runnable.invoke = original_invoke
+        mock_runnables.Runnable.ainvoke = AsyncMock()
+        mock_runnables.Runnable.stream = MagicMock()
+        mock_runnables.Runnable.astream = AsyncMock()
+        mock_runnables.Runnable.batch = MagicMock()
+        mock_runnables.Runnable.abatch = AsyncMock()
 
-        with patch("llm_tracer_sdk.instrumentation.Runnable") as mock_runnable:
-            original_invoke = MagicMock()
-            mock_runnable.invoke = original_invoke
-            mock_runnable.ainvoke = AsyncMock()
-            mock_runnable.stream = MagicMock()
-            mock_runnable.astream = AsyncMock()
-            mock_runnable.batch = MagicMock()
-            mock_runnable.abatch = AsyncMock()
+        with patch.dict("sys.modules", {
+            "langchain_core": MagicMock(),
+            "langchain_core.runnables": mock_runnables,
+        }):
+            instrumentation_mod._instrumented = False
+            instrumentation_mod._original_methods.clear()
 
-            instrument_langchain(mock_client)
+            instrument_langchain()
+            assert instrumentation_mod._instrumented
+
             uninstrument_langchain()
-
-            assert not _is_instrumented()
+            assert not instrumentation_mod._instrumented
 
     def test_uninstrument_not_instrumented(self):
         """Test uninstrumentation when not instrumented."""
@@ -79,13 +100,11 @@ class TestInstrumentation:
 
     def test_instrument_langchain_import_error(self):
         """Test instrumentation when LangChain not installed."""
-        mock_client = MagicMock()
-
-        with patch("llm_tracer_sdk.instrumentation.Runnable", None):
+        with patch.dict("sys.modules", {"langchain_core": None, "langchain_core.runnables": None}):
             with patch("llm_tracer_sdk.instrumentation.logger") as mock_logger:
                 # Should handle gracefully
                 try:
-                    instrument_langchain(mock_client)
+                    instrument_langchain()
                 except Exception:
                     pass  # Expected
 
@@ -93,49 +112,32 @@ class TestInstrumentation:
 class TestTracedMethods:
     """Tests for traced method wrappers."""
 
-    def test_create_traced_method(self):
-        """Test creating a traced sync method."""
-        mock_client = MagicMock()
+    def test_wrap_method(self):
+        """Test wrapping a sync method."""
         original_method = MagicMock(return_value="result")
 
-        traced_method = _create_traced_method(original_method, mock_client)
+        wrapped = _wrap_method(original_method, "invoke")
 
         mock_self = MagicMock()
         mock_self.__class__.__name__ = "ChatOpenAI"
 
-        result = traced_method(mock_self, "input", config=None)
+        # Without SDK initialized, should call original directly
+        result = wrapped(mock_self, "input", config=None)
 
         assert result == "result"
 
-    def test_create_traced_method_with_existing_callbacks(self):
-        """Test traced method with existing callbacks."""
-        mock_client = MagicMock()
-        original_method = MagicMock(return_value="result")
-        existing_callback = MagicMock()
-
-        traced_method = _create_traced_method(original_method, mock_client)
-
-        mock_self = MagicMock()
-        mock_self.__class__.__name__ = "ChatOpenAI"
-
-        result = traced_method(mock_self, "input", config={"callbacks": [existing_callback]})
-
-        # Should merge callbacks
-        call_config = original_method.call_args[0][1]
-        assert len(call_config["callbacks"]) >= 1
-
     @pytest.mark.asyncio
-    async def test_create_async_traced_method(self):
-        """Test creating a traced async method."""
-        mock_client = MagicMock()
+    async def test_wrap_async_method(self):
+        """Test wrapping an async method."""
         original_method = AsyncMock(return_value="result")
 
-        traced_method = _create_async_traced_method(original_method, mock_client)
+        wrapped = _wrap_async_method(original_method, "ainvoke")
 
         mock_self = MagicMock()
         mock_self.__class__.__name__ = "ChatOpenAI"
 
-        result = await traced_method(mock_self, "input", config=None)
+        # Without SDK initialized, should call original directly
+        result = await wrapped(mock_self, "input", config=None)
 
         assert result == "result"
 
@@ -145,12 +147,11 @@ class TestIntegration:
 
     def teardown_method(self):
         """Clean up after each test."""
-        uninstrument_langchain()
+        instrumentation_mod._instrumented = False
+        instrumentation_mod._original_methods.clear()
 
     def test_full_instrumentation_flow(self):
         """Test full instrumentation and call flow."""
-        mock_client = MagicMock()
-
         # Create mock Runnable class
         class MockRunnable:
             def invoke(self, input, config=None, **kwargs):
@@ -159,8 +160,14 @@ class TestIntegration:
             async def ainvoke(self, input, config=None, **kwargs):
                 return f"Async response to: {input}"
 
-        with patch("llm_tracer_sdk.instrumentation.Runnable", MockRunnable):
-            instrument_langchain(mock_client)
+        mock_runnables = MagicMock()
+        mock_runnables.Runnable = MockRunnable
+
+        with patch.dict("sys.modules", {
+            "langchain_core": MagicMock(),
+            "langchain_core.runnables": mock_runnables,
+        }):
+            instrument_langchain()
 
             runnable = MockRunnable()
             result = runnable.invoke("Hello")

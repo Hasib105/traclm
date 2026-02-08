@@ -1,9 +1,8 @@
 """Tests for the TracerClient."""
 
-import time
 from unittest.mock import MagicMock, patch
 
-from llm_tracer_sdk.client import TracerClient
+from llm_tracer_sdk.client import TracerClient, get_client, reset_client
 
 
 class TestTracerClient:
@@ -11,152 +10,180 @@ class TestTracerClient:
 
     def test_init(self):
         """Test client initialization."""
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
+        client = TracerClient()
 
-        assert client.api_key == "lt-test-key"
-        assert client.endpoint == "http://localhost:8000"
-        assert client._running is False
+        assert client._started is False
+        assert client._queue.empty()
 
     def test_start(self):
         """Test starting the client."""
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
+        client = TracerClient()
 
         client.start()
-        assert client._running is True
-        assert client._worker is not None
-        assert client._worker.is_alive()
+        assert client._started is True
+        assert client._worker_thread is not None
+        assert client._worker_thread.is_alive()
 
-        client.stop()
+        client.shutdown()
 
-    def test_stop(self):
+    def test_start_idempotent(self):
+        """Test that calling start() twice is safe."""
+        client = TracerClient()
+
+        client.start()
+        thread1 = client._worker_thread
+
+        client.start()
+        thread2 = client._worker_thread
+
+        # Should be the same thread
+        assert thread1 is thread2
+
+        client.shutdown()
+
+    def test_shutdown(self):
         """Test stopping the client."""
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
+        client = TracerClient()
 
         client.start()
-        client.stop()
+        client.shutdown()
 
-        assert client._running is False
+        assert client._started is False
 
-    def test_stop_not_started(self):
-        """Test stopping when not started."""
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
+    def test_shutdown_not_started(self):
+        """Test shutdown when not started."""
+        client = TracerClient()
 
         # Should not raise
-        client.stop()
+        client.shutdown()
 
     def test_send_trace(self):
-        """Test sending a trace."""
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
-        client.start()
+        """Test queueing a trace."""
+        client = TracerClient()
 
-        trace_data = {"trace_id": "test-123", "model_name": "gpt-4"}
-        client.send_trace(trace_data)
+        mock_config = MagicMock(enabled=True)
+        with patch.object(TracerClient, "config", new_callable=lambda: property(lambda self: mock_config)):
+            client.send_trace({"trace_id": "test-123", "model_name": "gpt-4"})
 
-        # Allow time for queue processing
-        time.sleep(0.1)
+        assert not client._queue.empty()
+        item = client._queue.get_nowait()
+        assert item["action"] == "send"
+        assert item["data"]["trace_id"] == "test-123"
 
-        # Trace should be in pending
-        assert "test-123" in client._pending_traces
+    def test_send_trace_disabled(self):
+        """Test that send_trace is a no-op when disabled."""
+        client = TracerClient()
 
-        client.stop()
+        with patch.object(TracerClient, "config", new_callable=lambda: property(lambda self: None)):
+            client.send_trace({"trace_id": "test-123"})
+
+        assert client._queue.empty()
 
     def test_update_trace(self):
-        """Test updating a trace."""
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
-        client.start()
+        """Test queueing a trace update."""
+        client = TracerClient()
 
-        # Send initial trace
-        trace_data = {"trace_id": "test-123", "status": "running"}
-        client.send_trace(trace_data)
-        time.sleep(0.1)
+        mock_config = MagicMock(enabled=True)
+        with patch.object(TracerClient, "config", new_callable=lambda: property(lambda self: mock_config)):
+            client.update_trace("test-123", {"status": "success"})
 
-        # Update trace
-        client.update_trace("test-123", {"status": "success"})
-        time.sleep(0.1)
-
-        # Check update was applied
-        assert client._pending_traces.get("test-123", {}).get("status") == "success"
-
-        client.stop()
-
-    def test_update_nonexistent_trace(self):
-        """Test updating a trace that doesn't exist."""
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
-        client.start()
-
-        # Should not raise
-        client.update_trace("nonexistent", {"status": "success"})
-
-        client.stop()
+        assert not client._queue.empty()
+        item = client._queue.get_nowait()
+        assert item["action"] == "update"
+        assert item["trace_id"] == "test-123"
+        assert item["data"]["status"] == "success"
 
     def test_flush(self):
-        """Test flushing traces."""
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
+        """Test flushing the queue."""
+        client = TracerClient()
 
-        with patch.object(client, "_send_traces") as mock_send:
-            client.start()
+        # Manually enqueue items
+        client._queue.put({"action": "send", "data": {"trace_id": "test-1"}})
+        client._queue.put({"action": "send", "data": {"trace_id": "test-2"}})
 
-            trace_data = {"trace_id": "test-123", "status": "success"}
-            client.send_trace(trace_data)
-            time.sleep(0.1)
+        mock_config = MagicMock(enabled=True)
+        with patch.object(TracerClient, "config", new_callable=lambda: property(lambda self: mock_config)):
+            with patch.object(client, "_process_item") as mock_process:
+                client.flush()
 
-            client.flush()
+        assert mock_process.call_count == 2
+        assert client._queue.empty()
 
-            # Flush should trigger send
-            time.sleep(0.2)
 
-        client.stop()
+class TestTracerClientSingleton:
+    """Tests for singleton client management."""
 
-    def test_context_manager(self):
-        """Test using client as context manager."""
-        with TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000") as client:
-            assert client._running is True
+    def teardown_method(self):
+        """Clean up singleton."""
+        reset_client()
 
-        assert client._running is False
+    def test_get_client_returns_singleton(self):
+        """Test get_client returns the same instance."""
+        client1 = get_client()
+        client2 = get_client()
+
+        assert client1 is client2
+
+    def test_reset_client(self):
+        """Test reset_client replaces the singleton."""
+        client1 = get_client()
+        reset_client()
+        client2 = get_client()
+
+        assert client1 is not client2
 
 
 class TestTracerClientHTTP:
     """Tests for TracerClient HTTP operations."""
 
-    @patch("httpx.post")
-    def test_send_traces_success(self, mock_post):
-        """Test successful trace sending."""
-        mock_post.return_value = MagicMock(status_code=200, json=lambda: {"success": True})
+    def test_process_item_send(self):
+        """Test processing a send item."""
+        client = TracerClient()
+        mock_config = MagicMock(
+            enabled=True,
+            endpoint="http://localhost:8000",
+            debug=False,
+        )
 
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
+        with patch.object(type(client), "config", new_callable=lambda: property(lambda self: mock_config)):
+            with patch("llm_tracer_sdk.client.httpx.Client") as mock_http_cls:
+                mock_http = MagicMock()
+                mock_http.__enter__ = MagicMock(return_value=mock_http)
+                mock_http.__exit__ = MagicMock(return_value=False)
+                mock_http.post.return_value = MagicMock(status_code=200)
+                mock_http_cls.return_value = mock_http
 
-        traces = [{"trace_id": "test-123"}]
-        client._send_traces(traces)
+                client._process_item({"action": "send", "data": {"trace_id": "test-1"}})
 
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
-        assert "X-API-Key" in call_args.kwargs["headers"]
+                mock_http.post.assert_called_once()
 
-    @patch("httpx.post")
-    def test_send_traces_failure(self, mock_post):
-        """Test trace sending failure handling."""
-        mock_post.side_effect = Exception("Network error")
+    def test_process_item_update(self):
+        """Test processing an update item."""
+        client = TracerClient()
+        mock_config = MagicMock(
+            enabled=True,
+            endpoint="http://localhost:8000",
+            debug=False,
+        )
 
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000")
+        with patch.object(type(client), "config", new_callable=lambda: property(lambda self: mock_config)):
+            with patch("llm_tracer_sdk.client.httpx.Client") as mock_http_cls:
+                mock_http = MagicMock()
+                mock_http.__enter__ = MagicMock(return_value=mock_http)
+                mock_http.__exit__ = MagicMock(return_value=False)
+                mock_http.patch.return_value = MagicMock(status_code=200)
+                mock_http_cls.return_value = mock_http
 
-        traces = [{"trace_id": "test-123"}]
+                client._process_item({"action": "update", "trace_id": "t-1", "data": {"status": "success"}})
 
-        # Should not raise
-        client._send_traces(traces)
+                mock_http.patch.assert_called_once()
 
-    @patch("httpx.post")
-    def test_batch_sending(self, mock_post):
-        """Test batch trace sending."""
-        mock_post.return_value = MagicMock(status_code=200)
+    def test_process_item_disabled(self):
+        """Test processing when disabled does nothing."""
+        client = TracerClient()
+        mock_config = MagicMock(enabled=False)
 
-        client = TracerClient(api_key="lt-test-key", endpoint="http://localhost:8000", batch_size=2)
-
-        traces = [
-            {"trace_id": "test-1"},
-            {"trace_id": "test-2"},
-            {"trace_id": "test-3"},
-        ]
-        client._send_traces(traces)
-
-        # Should be called twice for batch of 2
-        assert mock_post.call_count == 2
+        with patch.object(type(client), "config", new_callable=lambda: property(lambda self: mock_config)):
+            with patch("llm_tracer_sdk.client.httpx.Client") as mock_http_cls:
+                client._process_item({"action": "send", "data": {"trace_id": "test-1"}})
+                mock_http_cls.assert_not_called()

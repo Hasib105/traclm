@@ -4,15 +4,17 @@ import uuid
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from llm_tracer_sdk.callback import LLMTrackerCallback
+from unittest.mock import patch
+
+from llm_tracer_sdk.callback import LLMTracerCallback
 
 
-class TestLLMTrackerCallback:
-    """Tests for LLMTrackerCallback."""
+class TestLLMTracerCallback:
+    """Tests for LLMTracerCallback."""
 
     def test_init_default(self):
         """Test default initialization."""
-        callback = LLMTrackerCallback()
+        callback = LLMTracerCallback()
 
         assert callback.trace_id is not None
         assert callback.parent_trace_id is None
@@ -23,7 +25,7 @@ class TestLLMTrackerCallback:
 
     def test_init_with_values(self):
         """Test initialization with custom values."""
-        callback = LLMTrackerCallback(
+        callback = LLMTracerCallback(
             trace_id="custom-trace",
             parent_trace_id="parent-trace",
             session_id="session-123",
@@ -42,14 +44,17 @@ class TestLLMTrackerCallback:
     def test_init_with_client(self):
         """Test initialization with client."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client)
 
         assert callback._get_client() == mock_client
 
     def test_get_client_no_client(self):
-        """Test _get_client when no client set."""
-        callback = LLMTrackerCallback()
-        assert callback._get_client() is None
+        """Test _get_client when no client set returns singleton."""
+        callback = LLMTracerCallback()
+        with patch("llm_tracer_sdk.client.get_client", return_value=None) as mock_get:
+            result = callback._get_client()
+            mock_get.assert_called_once()
+            assert result is None
 
 
 class TestCallbackEvents:
@@ -58,7 +63,7 @@ class TestCallbackEvents:
     def test_on_chat_model_start(self, mock_langchain_message):
         """Test on_chat_model_start handler."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client)
 
         serialized = {"id": ["langchain", "chat_models", "openai"]}
         messages = [[mock_langchain_message]]
@@ -80,7 +85,7 @@ class TestCallbackEvents:
     def test_on_llm_start(self):
         """Test on_llm_start handler."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client)
 
         serialized = {"kwargs": {"model_name": "text-davinci-003"}}
         prompts = ["Hello, world!"]
@@ -95,7 +100,7 @@ class TestCallbackEvents:
     def test_on_llm_end(self, mock_llm_result):
         """Test on_llm_end handler."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client, trace_id="test-123")
 
         # Simulate start first
         callback._trace_data = {"trace_id": "test-123"}
@@ -109,20 +114,22 @@ class TestCallbackEvents:
         assert call_args[0][1]["status"] == "success"
 
     def test_on_llm_end_no_trace_data(self, mock_llm_result):
-        """Test on_llm_end with no trace data."""
+        """Test on_llm_end still sends update even without trace_data (uses trace_id)."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client, trace_id="test-456")
 
-        # No trace_data set
+        # No trace_data set, but on_llm_end still calls update_trace with self.trace_id
         callback.on_llm_end(response=mock_llm_result, run_id=uuid.uuid4())
 
-        # Should not call update
-        mock_client.update_trace.assert_not_called()
+        mock_client.update_trace.assert_called_once()
+        call_args = mock_client.update_trace.call_args
+        assert call_args[0][0] == "test-456"
+        assert call_args[0][1]["status"] == "success"
 
     def test_on_llm_error(self):
         """Test on_llm_error handler."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client)
 
         # Simulate start first
         callback._trace_data = {"trace_id": "test-123"}
@@ -137,14 +144,17 @@ class TestCallbackEvents:
         assert "Test error" in call_args[0][1]["error_message"]
 
     def test_on_llm_error_no_trace_data(self):
-        """Test on_llm_error with no trace data."""
+        """Test on_llm_error still sends update even without trace_data."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client, trace_id="test-789")
 
         error = ValueError("Test error")
         callback.on_llm_error(error=error, run_id=uuid.uuid4())
 
-        mock_client.update_trace.assert_not_called()
+        mock_client.update_trace.assert_called_once()
+        call_args = mock_client.update_trace.call_args
+        assert call_args[0][0] == "test-789"
+        assert call_args[0][1]["status"] == "error"
 
 
 class TestToolEvents:
@@ -152,7 +162,7 @@ class TestToolEvents:
 
     def test_on_tool_start(self):
         """Test on_tool_start handler."""
-        callback = LLMTrackerCallback()
+        callback = LLMTracerCallback()
 
         serialized = {"name": "calculator"}
         input_str = "2 + 2"
@@ -167,7 +177,7 @@ class TestToolEvents:
     def test_on_tool_end(self):
         """Test on_tool_end handler."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client)
 
         run_id = uuid.uuid4()
         callback._trace_data = {"trace_id": "test-123", "tool_calls": []}
@@ -189,7 +199,7 @@ class TestToolEvents:
     def test_on_tool_end_no_pending(self):
         """Test on_tool_end with no pending tool."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client)
 
         callback.on_tool_end(output="4", run_id=uuid.uuid4())
 
@@ -198,7 +208,7 @@ class TestToolEvents:
     def test_on_tool_error(self):
         """Test on_tool_error handler."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client)
 
         run_id = uuid.uuid4()
         callback._trace_data = {"trace_id": "test-123", "tool_calls": []}
@@ -220,7 +230,7 @@ class TestToolEvents:
     def test_on_tool_error_no_pending(self):
         """Test on_tool_error with no pending tool."""
         mock_client = MagicMock()
-        callback = LLMTrackerCallback(client=mock_client)
+        callback = LLMTracerCallback(client=mock_client)
 
         error = ValueError("Test error")
         callback.on_tool_error(error=error, run_id=uuid.uuid4())
@@ -233,7 +243,7 @@ class TestMessageSerialization:
 
     def test_serialize_message(self, mock_langchain_message):
         """Test message serialization."""
-        callback = LLMTrackerCallback()
+        callback = LLMTracerCallback()
 
         result = callback._serialize_message(mock_langchain_message)
 
@@ -242,7 +252,7 @@ class TestMessageSerialization:
 
     def test_serialize_message_no_content(self):
         """Test serializing message without content attribute."""
-        callback = LLMTrackerCallback()
+        callback = LLMTracerCallback()
 
         mock_msg = MagicMock()
         mock_msg.__class__.__name__ = "CustomMessage"

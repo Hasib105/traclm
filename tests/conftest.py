@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+@pytest.fixture(scope="session", autouse=True)
+def _set_piccolo_conf():
+    """Set PICCOLO_CONF so Piccolo finds the engine config."""
+    with patch.dict(os.environ, {"PICCOLO_CONF": "llm_tracer.db.piccolo_conf"}):
+        yield
 
 
 @pytest.fixture(scope="session")
@@ -105,9 +107,21 @@ def mock_llm_result():
 @pytest.fixture
 async def async_client():
     """Create async HTTP client for API testing."""
-    from httpx import AsyncClient
+    from httpx import ASGITransport, AsyncClient
 
-    from llm_tracer.main import app
+    from llm_tracer.api.dependencies import require_api_key, require_auth
+    from llm_tracer.app import create_app
 
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    app = create_app()
+
+    # Override auth dependencies for testing
+    fake_user = {"id": 1, "username": "testuser", "email": "test@test.com", "is_admin": False}
+    fake_api_key = {"id": 1, "key_hash": "test", "project": 1, "is_active": 1}
+    app.dependency_overrides[require_auth] = lambda: fake_user
+    app.dependency_overrides[require_api_key] = lambda: fake_api_key
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+
+    app.dependency_overrides.clear()

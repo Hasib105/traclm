@@ -1,87 +1,66 @@
-"""Tests for Piccolo configuration."""
+"""Tests for Piccolo and database configuration."""
 
 import os
 from unittest.mock import patch
 
+from piccolo.engine.sqlite import SQLiteEngine
 
-class TestPiccoloConfig:
+from llm_tracer.config import Settings
+
+
+class TestDatabaseConfig:
     """Tests for database configuration."""
 
-    def test_default_sqlite_engine(self):
-        """Test default SQLite engine is used."""
+    def test_default_sqlite_url(self):
+        """Test default database URL is SQLite."""
         with patch.dict(os.environ, {}, clear=True):
-            # Re-import to get fresh config
-            from piccolo.engine.sqlite import SQLiteEngine
-            from piccolo_conf import get_db_engine
+            s = Settings()
+            assert s.DATABASE_URL.startswith("sqlite")
 
-            engine = get_db_engine()
-            assert isinstance(engine, SQLiteEngine)
-
-    def test_postgres_from_database_url(self):
-        """Test PostgreSQL from DATABASE_URL."""
+    def test_database_url_from_env(self):
+        """Test DATABASE_URL from environment."""
         with patch.dict(
             os.environ, {"DATABASE_URL": "postgresql://user:pass@localhost:5432/testdb"}, clear=True
         ):
-            from piccolo.engine.postgres import PostgresEngine
-            from piccolo_conf import _create_postgres_engine_from_url
+            s = Settings()
+            assert s.DATABASE_URL == "postgresql://user:pass@localhost:5432/testdb"
 
-            engine = _create_postgres_engine_from_url(
-                "postgresql://user:pass@localhost:5432/testdb"
-            )
-            assert isinstance(engine, PostgresEngine)
-
-    def test_postgres_from_env_vars(self):
-        """Test PostgreSQL from individual env vars."""
+    def test_get_database_url_prefers_explicit(self):
+        """Test get_database_url prefers DATABASE_URL."""
         with patch.dict(
             os.environ,
             {
-                "POSTGRES_HOST": "localhost",
-                "POSTGRES_PORT": "5432",
-                "POSTGRES_USER": "testuser",
-                "POSTGRES_PASSWORD": "testpass",
-                "POSTGRES_DB": "testdb",
+                "DATABASE_URL": "postgresql://user:pass@localhost:5432/testdb",
+                "POSTGRES_HOST": "otherhost",
             },
             clear=True,
         ):
-            from piccolo.engine.postgres import PostgresEngine
-            from piccolo_conf import _create_postgres_engine_from_env
+            s = Settings()
+            url = s.get_database_url()
+            assert "user:pass@localhost" in url
 
-            engine = _create_postgres_engine_from_env()
-            assert isinstance(engine, PostgresEngine)
+    def test_get_database_url_from_postgres_vars(self):
+        """Test get_database_url builds URL from POSTGRES_* vars."""
+        with patch.dict(
+            os.environ,
+            {
+                "POSTGRES_HOST": "myhost",
+                "POSTGRES_PORT": "5433",
+                "POSTGRES_USER": "myuser",
+                "POSTGRES_PASSWORD": "mypass",
+                "POSTGRES_DB": "mydb",
+            },
+            clear=True,
+        ):
+            s = Settings()
+            url = s.get_database_url()
+            assert "myuser:mypass@myhost:5433/mydb" in url
 
-    def test_custom_sqlite_path(self):
-        """Test custom SQLite path from env var."""
-        with patch.dict(os.environ, {"SQLITE_PATH": "./custom.db"}, clear=True):
-            from piccolo.engine.sqlite import SQLiteEngine
-            from piccolo_conf import _create_sqlite_engine
-
-            engine = _create_sqlite_engine()
-            assert isinstance(engine, SQLiteEngine)
-
-    def test_database_url_parsing(self):
-        """Test DATABASE_URL parsing."""
-        from piccolo_conf import _create_postgres_engine_from_url
-
-        url = "postgresql://myuser:mypass@db.example.com:5433/mydb"
-        engine = _create_postgres_engine_from_url(url)
-
-        assert engine.config["host"] == "db.example.com"
-        assert engine.config["port"] == 5433
-        assert engine.config["user"] == "myuser"
-        assert engine.config["password"] == "mypass"
-        assert engine.config["database"] == "mydb"
-
-    def test_database_url_defaults(self):
-        """Test DATABASE_URL with defaults."""
-        from piccolo_conf import _create_postgres_engine_from_url
-
-        url = "postgresql://user@localhost/db"
-        engine = _create_postgres_engine_from_url(url)
-
-        assert engine.config["port"] == 5432  # Default port
-
-    def test_app_registry(self):
-        """Test APP_REGISTRY is properly configured."""
-        from piccolo_conf import APP_REGISTRY
-
-        assert "llm_tracer.db.piccolo_app" in APP_REGISTRY.apps
+    def test_default_settings(self):
+        """Test default settings values."""
+        with patch.dict(os.environ, {}, clear=True):
+            s = Settings()
+            assert s.HOST == "0.0.0.0"
+            assert s.PORT == 8000
+            assert s.DEBUG is False
+            assert s.APP_NAME == "LLM Tracer"
