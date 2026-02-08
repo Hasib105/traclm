@@ -1,6 +1,6 @@
 """Tests for Piccolo database tables."""
 
-from llm_tracer.db.tables import APIKey, LLMTrace, Project
+from llm_tracer.db.models import APIKey, LLMTrace, Project
 
 
 class TestProjectTable:
@@ -18,7 +18,7 @@ class TestProjectTable:
 
     def test_project_table_name(self):
         """Test Project table name."""
-        assert Project._table_str == "project"
+        assert Project._meta.tablename == "project"
 
 
 class TestAPIKeyTable:
@@ -29,7 +29,7 @@ class TestAPIKeyTable:
         api_key = APIKey()
 
         assert hasattr(api_key, "id")
-        assert hasattr(api_key, "key")
+        assert hasattr(api_key, "key_hash")
         assert hasattr(api_key, "name")
         assert hasattr(api_key, "project")
         assert hasattr(api_key, "is_active")
@@ -38,7 +38,7 @@ class TestAPIKeyTable:
 
     def test_api_key_table_name(self):
         """Test APIKey table name."""
-        assert APIKey._table_str == "api_key"
+        assert APIKey._meta.tablename == "api_key"
 
 
 class TestLLMTraceTable:
@@ -76,7 +76,6 @@ class TestLLMTraceTable:
         # Timestamps
         assert hasattr(trace, "start_time")
         assert hasattr(trace, "end_time")
-        assert hasattr(trace, "created_at")
 
         # Context
         assert hasattr(trace, "metadata")
@@ -86,7 +85,7 @@ class TestLLMTraceTable:
 
     def test_trace_table_name(self):
         """Test LLMTrace table name."""
-        assert LLMTrace._table_str == "llm_trace"
+        assert LLMTrace._meta.tablename == "llm_trace"
 
 
 class TestTableRelationships:

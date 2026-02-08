@@ -2,7 +2,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com)
-[![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet.svg)](https://docs.astral.sh/uv/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://docker.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
@@ -12,11 +12,12 @@ A **LangSmith-like** observability platform for LangChain and LangGraph applicat
 
 - **🔍 Full LLM Observability** - Track all LLM calls, inputs, outputs, token usage, and latency
 - **🛠️ Tool Call Tracking** - Monitor tool/function calls with inputs, outputs, and errors
-- **📊 Beautiful Dashboard** - Waterfall view of traces with detailed inspection
+- **📊 Beautiful Dashboard** - React-based waterfall view of traces with detailed inspection
 - **🔑 API Key Management** - Secure authentication for your applications
 - **📁 Project Organization** - Organize traces by project
 - **🚀 Auto-Instrumentation** - Just call `init()` and all LangChain calls are traced automatically (like Sentry!)
 - **💾 Self-Hosted** - Full control over your data
+- **🐳 Docker Ready** - One command to deploy with Docker Compose
 - **🐘 PostgreSQL + SQLite** - Production PostgreSQL with SQLite fallback for development
 
 ## 🏗️ Architecture
@@ -25,7 +26,7 @@ A **LangSmith-like** observability platform for LangChain and LangGraph applicat
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Your Application                          │
 │  ┌─────────────┐    ┌─────────────────────┐                     │
-│  │  LangChain  │◀───│   llm_tracer_sdk    │                     │
+│  │  LangChain  │◀───│   llm-tracer-sdk    │                     │
 │  │     LLM     │    │  (auto-instrument)  │                     │
 │  └─────────────┘    └──────────┬──────────┘                     │
 └────────────────────────────────┼────────────────────────────────┘
@@ -37,10 +38,10 @@ A **LangSmith-like** observability platform for LangChain and LangGraph applicat
 │  │   FastAPI   │───▶│   Piccolo   │───▶│  PostgreSQL │         │
 │  │     API     │    │     ORM     │    │  / SQLite   │         │
 │  └─────────────┘    └─────────────┘    └─────────────┘         │
-│  ┌─────────────────────────────────────────────────────┐       │
-│  │                    Web Dashboard                     │       │
-│  │   • Traces List  • Trace Detail  • Projects/Keys   │       │
-│  └─────────────────────────────────────────────────────┘       │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                React Dashboard (Vite + Tailwind)            ││
+│  │   • Traces List  • Trace Detail  • Projects/Keys           ││
+│  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,108 +49,105 @@ A **LangSmith-like** observability platform for LangChain and LangGraph applicat
 
 ```
 llm-tracer/
-├── src/
-│   ├── llm_tracer/          # Main server application
-│   │   ├── api/             # FastAPI routes and schemas
-│   │   ├── db/              # Database models and migrations
-│   │   ├── templates/       # Jinja2 HTML templates
-│   │   ├── config.py        # Application configuration
-│   │   └── main.py          # FastAPI app entry point
-│   └── llm_tracer_sdk/      # Client SDK for instrumentation
-│       ├── callback.py      # LangChain callback handler
-│       ├── client.py        # HTTP client for API
-│       ├── context.py       # Trace context management
-│       ├── instrumentation.py
-│       └── sdk.py           # Main SDK interface
-├── tests/                   # Test suite
-├── examples/                # Usage examples
-├── pyproject.toml           # Project configuration (uv/hatch)
-├── piccolo_conf.py          # Piccolo ORM configuration
-└── README.md
+├── packages/
+│   ├── llm-tracer/              # Server package (PyPI: llm-tracer)
+│   │   └── src/llm_tracer/
+│   │       ├── api/v1/          # Versioned REST API
+│   │       ├── db/models/       # Database models
+│   │       ├── app.py           # FastAPI app factory
+│   │       └── config.py        # Settings management
+│   └── llm-tracer-sdk/          # SDK package (PyPI: llm-tracer-sdk)
+│       └── src/llm_tracer_sdk/
+│           ├── callback.py      # LangChain callback handler
+│           ├── instrumentation.py # Auto-patching
+│           └── sdk.py           # Main interface
+├── apps/
+│   └── web/                     # React dashboard (Vite + Tailwind)
+├── .github/workflows/           # CI/CD (Docker, PyPI, Tests)
+├── docker-compose.yml           # Production deployment
+├── docker-compose.dev.yml       # Development with SQLite
+├── Dockerfile                   # Multi-stage build
+└── pyproject.toml               # Workspace configuration
 ```
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
-
-### 1. Install uv (if not already installed)
-
-```bash
-# On macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# On Windows
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-### 2. Clone and Setup
+### Option 1: Docker (Recommended)
 
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/llm-tracer.git
 cd llm-tracer
 
-# Create virtual environment and install dependencies
-uv sync
+# Copy and configure environment
+cp .env.example .env
+# Edit .env to set SECRET_KEY
 
-# Install with development dependencies
-uv sync --all-extras
-```
+# Start with PostgreSQL
+docker compose up -d
 
-### 3. Configure Database
-
-```bash
-# SQLite (default, no config needed)
-# Just run the server!
-
-# PostgreSQL (production)
-export DATABASE_URL="postgresql://user:password@localhost:5432/llm_tracer"
-# Or use individual variables:
-export POSTGRES_HOST="localhost"
-export POSTGRES_PORT="5432"
-export POSTGRES_USER="user"
-export POSTGRES_PASSWORD="password"
-export POSTGRES_DB="llm_tracer"
-```
-
-### 4. Run the Server
-
-```bash
-# Using uv run
-uv run llm-tracer
-
-# Or with uvicorn directly
-uv run uvicorn llm_tracer.main:app --reload --host 0.0.0.0 --port 8000
-
-# Or using the Python module
-uv run python -m llm_tracer.main
+# Or use the development setup (SQLite)
+docker compose -f docker-compose.dev.yml up -d
 ```
 
 The server will be available at `http://localhost:8000`
 
-### 5. Create a Project and API Key
-
-1. Open `http://localhost:8000` in your browser
-2. Go to **Projects** → Create a new project
-3. Go to **API Keys** → Create an API key for your project
-4. **Copy the API key** (it's shown only once!)
-
-### 6. Integrate the SDK
+### Option 2: Use Pre-built Docker Image
 
 ```bash
-# Install the SDK in your project
-uv add llm-tracer[sdk]
-# or with pip
-pip install llm-tracer[sdk]
+# Pull from GitHub Container Registry
+docker pull ghcr.io/yourusername/llm-tracer:latest
+
+# Run with SQLite
+docker run -d -p 8000:8000 \
+  -e DATABASE_URL=sqlite:///data/llmtracer.db \
+  -e SECRET_KEY=your-secret-key \
+  -v llmtracer_data:/app/data \
+  ghcr.io/yourusername/llm-tracer:latest
 ```
+
+### Option 3: Local Development
+
+```bash
+# Prerequisites: Python 3.10+, uv, Node.js 20+
+
+# Install uv (if not already)
+curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS/Linux
+# powershell -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+
+# Clone and setup
+git clone https://github.com/yourusername/llm-tracer.git
+cd llm-tracer
+
+# Install Python dependencies
+uv sync
+
+# Run the server
+cd packages/llm-tracer
+uv run llm-tracer
+
+# In another terminal, run the frontend
+cd apps/web
+npm install
+npm run dev
+```
+
+## 🔌 SDK Integration
+
+### Installation
+
+```bash
+pip install llm-tracer-sdk
+# or
+uv add llm-tracer-sdk
+```
+
+### Basic Usage
 
 ```python
 import llm_tracer_sdk
 
-# Initialize once at startup - that's it!
+# Initialize once at startup
 llm_tracer_sdk.init(
     api_key="lt-your-api-key",
     endpoint="http://localhost:8000"
@@ -157,111 +155,152 @@ llm_tracer_sdk.init(
 
 # All LangChain calls are now automatically traced!
 from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(model="gpt-4")
+response = llm.invoke("Hello!")  # Automatically traced!
 
-llm = ChatOpenAI(model="gpt-4o-mini")
-response = llm.invoke("Hello!")  # <-- Automatically traced!
+# Add context to traces
+with llm_tracer_sdk.set_user("user-123"):
+    with llm_tracer_sdk.set_session("session-456"):
+        response = llm.invoke("Who are you?")
+
+# Shutdown gracefully (flushes pending traces)
+llm_tracer_sdk.shutdown()
 ```
-
-## 🧪 Development
-
-### Running Tests
-
-```bash
-# Run all tests
-uv run pytest
-
-# Run with coverage
-uv run pytest --cov=src --cov-report=html
-
-# Run specific test file
-uv run pytest tests/test_api.py -v
-```
-
-### Linting & Formatting
-
-```bash
-# Check code with ruff
-uv run ruff check src tests
-
-# Fix auto-fixable issues
-uv run ruff check --fix src tests
-
-# Format code
-uv run ruff format src tests
-
-# Type checking with mypy
-uv run mypy src
-```
-
-### Pre-commit Hooks
-
-```bash
-# Install pre-commit hooks
-uv run pre-commit install
-
-# Run on all files
-uv run pre-commit run --all-files
-```
-
-## 🔧 Configuration
 
 ### Environment Variables
 
+```bash
+export LLM_TRACER_ENDPOINT=http://localhost:8000
+export LLM_TRACER_API_KEY=lt-your-api-key
+export LLM_TRACER_PROJECT=my-project
+```
+
+```python
+# With env vars set, just call init()
+llm_tracer_sdk.init()
+```
+
+### Manual Callback Handler
+
+```python
+from llm_tracer_sdk import LLMTracerCallback
+
+# Use with LangChain's callback system
+handler = LLMTracerCallback(
+    api_key="lt-your-api-key",
+    endpoint="http://localhost:8000"
+)
+
+llm = ChatOpenAI(model="gpt-4", callbacks=[handler])
+response = llm.invoke("Hello!")
+```
+
+## 🔐 Configuration
+
+### Server Configuration
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | Full database URL | `sqlite:///./llm_tracer.db` |
-| `POSTGRES_HOST` | PostgreSQL host | `localhost` |
-| `POSTGRES_PORT` | PostgreSQL port | `5432` |
-| `POSTGRES_USER` | PostgreSQL username | - |
-| `POSTGRES_PASSWORD` | PostgreSQL password | - |
-| `POSTGRES_DB` | PostgreSQL database | `llm_tracer` |
+| `DATABASE_URL` | Database connection string | `sqlite:///llmtracer.db` |
+| `SECRET_KEY` | Secret for signing tokens | Required in production |
 | `HOST` | Server host | `0.0.0.0` |
 | `PORT` | Server port | `8000` |
 | `DEBUG` | Enable debug mode | `false` |
-| `SECRET_KEY` | Secret key for security | `change-me-in-production` |
-| `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:3000,http://localhost:8000` |
+| `CORS_ORIGINS` | Comma-separated origins | `http://localhost:3000` |
 
 ### SDK Configuration
 
-```python
-import llm_tracer_sdk
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LLM_TRACER_ENDPOINT` | Server URL | Required |
+| `LLM_TRACER_API_KEY` | API key | Required |
+| `LLM_TRACER_PROJECT` | Project name | `default` |
+| `LLM_TRACER_ENABLED` | Enable tracing | `true` |
 
-llm_tracer_sdk.init(
-    api_key="lt-your-api-key",      # Required
-    endpoint="http://localhost:8000", # Server URL
-    debug=True,                       # Enable debug logging
-)
+## 🌐 API Endpoints
 
-# Set user/session context
-llm_tracer_sdk.set_user("user-123")
-llm_tracer_sdk.set_session("session-456")
-llm_tracer_sdk.set_tags(["production", "v2"])
-llm_tracer_sdk.set_metadata({"environment": "prod"})
+The server exposes a REST API under `/api/v1`:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/auth/login` | POST | User authentication |
+| `/api/v1/auth/register` | POST | User registration |
+| `/api/v1/projects` | GET/POST | List/create projects |
+| `/api/v1/api-keys` | GET/POST | List/create API keys |
+| `/api/v1/traces` | GET | List traces |
+| `/api/v1/traces/{id}` | GET | Get trace details |
+| `/api/v1/ingest` | POST | SDK trace ingestion |
+| `/health` | GET | Health check |
+
+## 🧪 Development
+
+```bash
+# Install all dependencies
+uv sync --all-extras
+
+# Run tests
+uv run pytest
+
+# Run tests with coverage
+uv run pytest --cov=packages
+
+# Type checking
+uv run mypy packages/
+
+# Linting and formatting
+uv run ruff check packages/
+uv run ruff format packages/
+
+# Frontend development
+cd apps/web
+npm install
+npm run dev
+
+# Build frontend
+npm run build
 ```
 
-## 📝 Examples
+## 🚢 Deployment
 
-See the [examples/](examples/) directory for complete usage examples:
+### Docker Compose (Production)
 
-- `basic_usage.py` - Basic auto-instrumentation
-- More examples coming soon!
+```bash
+# Configure environment
+cp .env.example .env
+# Set SECRET_KEY, POSTGRES_PASSWORD, etc.
 
-## 🤝 Contributing
+# Deploy
+docker compose up -d
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
+# View logs
+docker compose logs -f app
+```
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+### GitHub Actions
+
+The repository includes GitHub Actions workflows:
+
+- **CI** (`ci.yml`): Runs tests, linting, and frontend build on every push
+- **Docker** (`docker-publish.yml`): Builds and pushes Docker images to GHCR on release
+- **PyPI** (`publish.yml`): Publishes packages to PyPI on release
+
+### Manual Docker Build
+
+```bash
+# Build the image
+docker build -t llm-tracer:latest .
+
+# Run
+docker run -d -p 8000:8000 \
+  -e DATABASE_URL=sqlite:///data/llmtracer.db \
+  -e SECRET_KEY=your-secret-key \
+  llm-tracer:latest
+```
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
-## 🙏 Acknowledgments
+## 🤝 Contributing
 
-- Inspired by [LangSmith](https://smith.langchain.com/)
-- Built with [FastAPI](https://fastapi.tiangolo.com/), [Piccolo ORM](https://piccolo-orm.com/), and [LangChain](https://langchain.com/)
-- Package management by [uv](https://docs.astral.sh/uv/)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.

@@ -1,0 +1,106 @@
+name: Publish SDK to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to publish"
+        required: true
+        type: choice
+        options:
+          - llm-tracer-sdk
+          - llm-tracer
+          - both
+
+jobs:
+  build-sdk:
+    name: Build SDK Package
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || github.event.inputs.package == 'llm-tracer-sdk' || github.event.inputs.package == 'both'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Build SDK package
+        working-directory: packages/llm-tracer-sdk
+        run: uv build
+
+      - name: Store SDK distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-dist
+          path: packages/llm-tracer-sdk/dist/
+
+  build-server:
+    name: Build Server Package
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || github.event.inputs.package == 'llm-tracer' || github.event.inputs.package == 'both'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Build server package
+        working-directory: packages/llm-tracer
+        run: uv build
+
+      - name: Store server distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-dist
+          path: packages/llm-tracer/dist/
+
+  publish-sdk:
+    name: Publish SDK to PyPI
+    needs: build-sdk
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/llm-tracer-sdk
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download SDK distribution packages
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-dist
+          path: dist/
+
+      - name: Publish SDK to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-server:
+    name: Publish Server to PyPI
+    needs: build-server
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/llm-tracer
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download server distribution packages
+        uses: actions/download-artifact@v4
+        with:
+          name: server-dist
+          path: dist/
+
+      - name: Publish server to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
