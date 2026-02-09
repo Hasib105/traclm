@@ -8,6 +8,8 @@ import TraceDetail from './pages/TraceDetail'
 import Projects from './pages/Projects'
 import ApiKeys from './pages/ApiKeys'
 import Layout from './components/common/Layout'
+import ErrorBoundary from './components/common/ErrorBoundary'
+import NotFound from './pages/NotFound'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -58,6 +60,7 @@ function AppRoutes() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/api-keys" element={<ApiKeys />} />
       </Route>
+      <Route path="*" element={<NotFound />} />
     </Routes>
   )
 }
@@ -66,7 +69,9 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <AppRoutes />
+        <ErrorBoundary>
+          <AppRoutes />
+        </ErrorBoundary>
       </BrowserRouter>
     </AuthProvider>
   )

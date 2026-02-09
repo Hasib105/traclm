@@ -42,9 +42,9 @@ export default function Dashboard() {
   }
 
   const statCards = [
-    { 
-      label: 'Total Traces', 
-      value: stats.trace_count,
+    {
+      label: 'Total Traces',
+      value: stats?.trace_count ?? 0,
       icon: (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -53,9 +53,9 @@ export default function Dashboard() {
       color: 'from-indigo-500 to-indigo-600',
       bgColor: 'bg-indigo-500/10'
     },
-    { 
-      label: 'Projects', 
-      value: stats.project_count,
+    {
+      label: 'Projects',
+      value: stats?.project_count ?? 0,
       icon: (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -64,9 +64,9 @@ export default function Dashboard() {
       color: 'from-emerald-500 to-emerald-600',
       bgColor: 'bg-emerald-500/10'
     },
-    { 
-      label: 'API Keys', 
-      value: stats.api_key_count || 0,
+    {
+      label: 'API Keys',
+      value: stats?.api_key_count ?? 0,
       icon: (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />

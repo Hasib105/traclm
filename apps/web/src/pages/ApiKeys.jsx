@@ -55,10 +55,17 @@ export default function ApiKeys() {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to revoke this API key? Applications using this key will stop working.')) return
+    if (!confirm('Are you sure you want to delete this API key? This action cannot be undone.')) return
     
-    await fetch(`/api/v1/api-keys/${id}`, { method: 'DELETE' })
-    fetchData()
+    try {
+      const res = await fetch(`/api/v1/api-keys/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        throw new Error(`Failed to delete API key: ${res.status}`)
+      }
+      fetchData()
+    } catch (error) {
+      alert(`Error deleting API key: ${error.message}`)
+    }
   }
 
   const copyToClipboard = async (text) => {
@@ -165,7 +172,7 @@ export default function ApiKeys() {
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
-                        Revoke
+                        Delete
                       </button>
                     </td>
                   </tr>

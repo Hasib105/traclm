@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { fetchTraces } from '../api/traces'
 
 export default function Traces() {
   const [traces, setTraces] = useState([])
@@ -7,9 +8,12 @@ export default function Traces() {
   const [filter, setFilter] = useState('all')
 
   useEffect(() => {
-    fetch('/api/v1/traces')
-      .then(r => r.json())
-      .then(data => setTraces(data.traces || data))
+    fetchTraces()
+      .then(data => setTraces(data.traces))
+      .catch(err => {
+        console.error('Failed to fetch traces:', err)
+        setTraces([])
+      })
       .finally(() => setLoading(false))
   }, [])
 
