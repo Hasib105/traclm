@@ -75,11 +75,11 @@ async def create_api_key(data: APIKeyCreate, user: dict = Depends(require_auth))
 
 
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_api_key(key_id: int, user: dict = Depends(require_auth)):
-    """Revoke (deactivate) an API key."""
+async def delete_api_key(key_id: int, user: dict = Depends(require_auth)):
+    """Delete an API key."""
     api_key = await APIKey.select().where(APIKey.id == key_id).first()
     if not api_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
 
-    await APIKey.update({APIKey.is_active: 0}).where(APIKey.id == key_id)
+    await APIKey.delete().where(APIKey.id == key_id)
     return None
