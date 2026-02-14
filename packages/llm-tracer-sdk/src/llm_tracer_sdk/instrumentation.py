@@ -30,42 +30,51 @@ def instrument_langchain() -> None:
 
     try:
         from langchain_core.runnables import Runnable
+        from langchain_core.language_models import BaseChatModel, BaseLLM
     except ImportError:
         logger.warning("langchain-core not installed. Auto-instrumentation disabled.")
         return
 
-    # Patch invoke
-    if hasattr(Runnable, "invoke"):
-        _original_methods["Runnable.invoke"] = Runnable.invoke
-        Runnable.invoke = _wrap_method(Runnable.invoke, "invoke")
+    classes_to_patch = [Runnable, BaseChatModel, BaseLLM]
 
-    # Patch ainvoke
-    if hasattr(Runnable, "ainvoke"):
-        _original_methods["Runnable.ainvoke"] = Runnable.ainvoke
-        Runnable.ainvoke = _wrap_async_method(Runnable.ainvoke, "ainvoke")
+    for cls in classes_to_patch:
+        name = cls.__name__
+        # Patch invoke
+        if hasattr(cls, "invoke") and cls.invoke != Runnable.invoke:
+             # Only patch if it's not already patched via inheritance or we are ensuring it
+             # Actually, simpler to just patch them all if they exist in the class dict or are distinct
+             pass
 
-    # Patch stream
-    if hasattr(Runnable, "stream"):
-        _original_methods["Runnable.stream"] = Runnable.stream
-        Runnable.stream = _wrap_method(Runnable.stream, "stream")
-
-    # Patch astream
-    if hasattr(Runnable, "astream"):
-        _original_methods["Runnable.astream"] = Runnable.astream
-        Runnable.astream = _wrap_async_method(Runnable.astream, "astream")
-
-    # Patch batch
-    if hasattr(Runnable, "batch"):
-        _original_methods["Runnable.batch"] = Runnable.batch
-        Runnable.batch = _wrap_method(Runnable.batch, "batch")
-
-    # Patch abatch
-    if hasattr(Runnable, "abatch"):
-        _original_methods["Runnable.abatch"] = Runnable.abatch
-        Runnable.abatch = _wrap_async_method(Runnable.abatch, "abatch")
+    # Simple approach: Patch Runnable, BaseChatModel, BaseLLM explicit methods
+    # We use a helper to patch
+    _patch_class(Runnable, "Runnable")
+    _patch_class(BaseChatModel, "BaseChatModel")
+    _patch_class(BaseLLM, "BaseLLM")
 
     _instrumented = True
     logger.debug("LangChain instrumentation complete")
+
+def _patch_class(cls: Any, cls_name: str) -> None:
+    """Helper to patch a class."""
+    for method in ["invoke", "ainvoke", "stream", "astream", "batch", "abatch"]:
+        if hasattr(cls, method):
+            original = getattr(cls, method)
+            # Check if already patched to avoid double wrapping if we call this multiple times improperly
+            # or if it inherits from a patched class and we don't want to re-wrap?
+            # Actually, we should check if 'original' is already our wrapper.
+            if getattr(original, "_is_tracer_wrapper", False):
+                continue
+            
+            # Use wrapped method
+            if method.startswith("a"):
+                wrapped = _wrap_async_method(original, method)
+            else:
+                wrapped = _wrap_method(original, method)
+            
+            wrapped._is_tracer_wrapper = True # Mark as ours
+            
+            _original_methods[f"{cls_name}.{method}"] = original
+            setattr(cls, method, wrapped)
 
 
 def uninstrument_langchain() -> None:
@@ -77,14 +86,16 @@ def uninstrument_langchain() -> None:
 
     try:
         from langchain_core.runnables import Runnable
+        from langchain_core.language_models import BaseChatModel, BaseLLM
+        classes = {"Runnable": Runnable, "BaseChatModel": BaseChatModel, "BaseLLM": BaseLLM}
     except ImportError:
         return
 
     # Restore original methods
     for key, method in _original_methods.items():
         cls_name, method_name = key.split(".")
-        if cls_name == "Runnable":
-            setattr(Runnable, method_name, method)
+        if cls_name in classes:
+            setattr(classes[cls_name], method_name, method)
 
     _original_methods.clear()
     _instrumented = False
@@ -155,7 +166,22 @@ def _wrap_method(original: Callable[..., Any], method_name: str) -> Callable[...
 
         callback = _get_callback()
         if callback:
-            kwargs["config"] = _inject_callback(kwargs.get("config"), callback)
+             # Check if config is in args (usually 2nd positional arg for invoke/stream/batch)
+             # invoke(self, input, config=None, ...)
+             if len(args) > 1:
+                 # Config is likely the 2nd argument
+                 try:
+                     config = args[1]
+                     new_config = _inject_callback(config, callback)
+                     args_list = list(args)
+                     args_list[1] = new_config
+                     args = tuple(args_list)
+                 except Exception:
+                     # Fallback if args manipulation fails
+                     pass
+             else:
+                 # Config is in kwargs or using default
+                 kwargs["config"] = _inject_callback(kwargs.get("config"), callback)
 
         return original(self, *args, **kwargs)
 
@@ -172,7 +198,17 @@ def _wrap_async_method(original: Callable[..., Any], method_name: str) -> Callab
 
         callback = _get_callback()
         if callback:
-            kwargs["config"] = _inject_callback(kwargs.get("config"), callback)
+             if len(args) > 1:
+                 try:
+                     config = args[1]
+                     new_config = _inject_callback(config, callback)
+                     args_list = list(args)
+                     args_list[1] = new_config
+                     args = tuple(args_list)
+                 except Exception:
+                     pass
+             else:
+                 kwargs["config"] = _inject_callback(kwargs.get("config"), callback)
 
         return await original(self, *args, **kwargs)
 

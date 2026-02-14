@@ -20,8 +20,8 @@ class TraceStatus(str, Enum):
 class LLMTrace(Table):
     """Individual LLM trace record."""
 
-    trace_id = UUID(index=True)
-    parent_trace_id = UUID(null=True, index=True)
+    trace_id = Varchar(index=True)
+    parent_trace_id = Varchar(null=True, index=True)
     project = ForeignKey(references=Project, null=True)
 
     # Model information

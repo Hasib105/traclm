@@ -1,6 +1,8 @@
 """Trace query routes."""
 
+import json
 from datetime import datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -9,6 +11,16 @@ from llm_tracer.api.v1.schemas import TraceListResponse, TraceResponse
 from llm_tracer.db.models import LLMTrace
 
 router = APIRouter(prefix="/traces", tags=["Traces"])
+
+
+def _parse_json(value: Any, default: Any) -> Any:
+    """Parse JSON string if necessary."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return default
+    return value if value is not None else default
 
 
 @router.get("", response_model=TraceListResponse)
@@ -56,9 +68,9 @@ async def list_traces(
                 model_provider=t["model_provider"],
                 status=t["status"],
                 error_message=t["error_message"],
-                input_data=t["input_data"] or {},
-                output_data=t["output_data"] or {},
-                tool_calls=t["tool_calls"] or [],
+                input_data=_parse_json(t["input_data"], {}),
+                output_data=_parse_json(t["output_data"], {}),
+                tool_calls=_parse_json(t["tool_calls"], []),
                 prompt_tokens=t["prompt_tokens"],
                 completion_tokens=t["completion_tokens"],
                 total_tokens=t["total_tokens"],
@@ -66,8 +78,8 @@ async def list_traces(
                 start_time=t["start_time"],
                 end_time=t["end_time"],
                 latency_ms=t["latency_ms"],
-                metadata=t["metadata"] or {},
-                tags=t["tags"] or [],
+                metadata=_parse_json(t["metadata"], {}),
+                tags=_parse_json(t["tags"], []),
                 session_id=t["session_id"],
                 user_id=t["user_id"],
             )
@@ -87,6 +99,15 @@ async def get_recent_traces(
 ):
     """Get recent traces for dashboard."""
     traces = await LLMTrace.select().order_by(LLMTrace.start_time, ascending=False).limit(limit)
+
+    # Parse JSON fields for SQLite compatibility
+    for t in traces:
+        t["input_data"] = _parse_json(t["input_data"], {})
+        t["output_data"] = _parse_json(t["output_data"], {})
+        t["tool_calls"] = _parse_json(t["tool_calls"], [])
+        t["metadata"] = _parse_json(t["metadata"], {})
+        t["tags"] = _parse_json(t["tags"], [])
+
     return traces
 
 
@@ -140,9 +161,9 @@ async def get_trace(trace_id: str, user: dict = Depends(require_auth)):
         model_provider=trace["model_provider"],
         status=trace["status"],
         error_message=trace["error_message"],
-        input_data=trace["input_data"] or {},
-        output_data=trace["output_data"] or {},
-        tool_calls=trace["tool_calls"] or [],
+        input_data=_parse_json(trace["input_data"], {}),
+        output_data=_parse_json(trace["output_data"], {}),
+        tool_calls=_parse_json(trace["tool_calls"], []),
         prompt_tokens=trace["prompt_tokens"],
         completion_tokens=trace["completion_tokens"],
         total_tokens=trace["total_tokens"],
@@ -150,8 +171,8 @@ async def get_trace(trace_id: str, user: dict = Depends(require_auth)):
         start_time=trace["start_time"],
         end_time=trace["end_time"],
         latency_ms=trace["latency_ms"],
-        metadata=trace["metadata"] or {},
-        tags=trace["tags"] or [],
+        metadata=_parse_json(trace["metadata"], {}),
+        tags=_parse_json(trace["tags"], []),
         session_id=trace["session_id"],
         user_id=trace["user_id"],
     )
