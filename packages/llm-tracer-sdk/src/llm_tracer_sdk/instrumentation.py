@@ -29,8 +29,8 @@ def instrument_langchain() -> None:
         return
 
     try:
-        from langchain_core.runnables import Runnable
         from langchain_core.language_models import BaseChatModel, BaseLLM
+        from langchain_core.runnables import Runnable
     except ImportError:
         logger.warning("langchain-core not installed. Auto-instrumentation disabled.")
         return
@@ -38,7 +38,6 @@ def instrument_langchain() -> None:
     classes_to_patch = [Runnable, BaseChatModel, BaseLLM]
 
     for cls in classes_to_patch:
-        name = cls.__name__
         # Patch invoke
         if hasattr(cls, "invoke") and cls.invoke != Runnable.invoke:
              # Only patch if it's not already patched via inheritance or we are ensuring it
@@ -64,15 +63,15 @@ def _patch_class(cls: Any, cls_name: str) -> None:
             # Actually, we should check if 'original' is already our wrapper.
             if getattr(original, "_is_tracer_wrapper", False):
                 continue
-            
+
             # Use wrapped method
             if method.startswith("a"):
                 wrapped = _wrap_async_method(original, method)
             else:
                 wrapped = _wrap_method(original, method)
-            
+
             wrapped._is_tracer_wrapper = True # Mark as ours
-            
+
             _original_methods[f"{cls_name}.{method}"] = original
             setattr(cls, method, wrapped)
 
@@ -85,8 +84,8 @@ def uninstrument_langchain() -> None:
         return
 
     try:
-        from langchain_core.runnables import Runnable
         from langchain_core.language_models import BaseChatModel, BaseLLM
+        from langchain_core.runnables import Runnable
         classes = {"Runnable": Runnable, "BaseChatModel": BaseChatModel, "BaseLLM": BaseLLM}
     except ImportError:
         return
@@ -111,9 +110,8 @@ def _should_trace(obj: Any) -> bool:
         return False
 
     # Sample rate check
-    if config.sample_rate < 1.0:
-        if random.random() > config.sample_rate:
-            return False
+    if config.sample_rate < 1.0 and random.random() > config.sample_rate:
+        return False
 
     # Check if it's an LLM-like object (has model-related attributes)
     is_llm = hasattr(obj, "model_name") or hasattr(obj, "model") or hasattr(obj, "llm")
@@ -145,10 +143,7 @@ def _get_callback() -> Any:
 
 def _inject_callback(config: dict[str, Any] | None, callback: Any) -> dict[str, Any]:
     """Inject our callback into the config."""
-    if config is None:
-        config = {}
-    else:
-        config = dict(config)
+    config = {} if config is None else dict(config)
 
     callbacks = list(config.get("callbacks", []) or [])
     callbacks.append(callback)
